@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,7 +36,9 @@ WIKIDATA_SEARCH = ("https://www.wikidata.org/w/api.php?action=wbsearchentities&s
 WIKIDATA_ENTITIES = "https://www.wikidata.org/w/api.php?action=wbgetentities&ids={ids}&props=claims&format=json"
 ICON_URL = "https://icons.duckduckgo.com/ip3/{domain}.ico"
 
-USER_AGENT = "LinkGraph/0.1 (local LinkedIn export viewer)"
+# Wikimedia's API policy asks for a User-Agent with a contact URL; clients without one get
+# throttled. This names the project, not the user.
+USER_AGENT = "LinkGraph/0.1 (+https://github.com/mortennordbye/linkgraph)"
 TIMEOUT = 8
 MAX_BYTES = 256 * 1024
 WORKERS = 4
@@ -50,16 +53,63 @@ _HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[
 HttpGet = Callable[[str], tuple[int, str, bytes]]
 
 
-def http_get(url: str) -> tuple[int, str, bytes]:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+# Minimum seconds between two requests to the same host. Wikidata answers bursts with 429 and
+# then blocks for a while, so it gets one request per second however many workers run.
+MIN_INTERVAL = {"www.wikidata.org": 1.0, "data.brreg.no": 0.25, "icons.duckduckgo.com": 0.1}
+RETRIES = 3
+MAX_RETRY_WAIT = 30.0
+
+
+class _Throttle:
+    def __init__(self) -> None:
+        self._locks: dict[str, threading.Lock] = {}
+        self._last: dict[str, float] = {}
+        self._guard = threading.Lock()
+
+    def wait(self, host: str) -> threading.Lock:
+        with self._guard:
+            lock = self._locks.setdefault(host, threading.Lock())
+        return lock
+
+    def pace(self, host: str) -> None:
+        """Call while holding the host lock: sleep until the host's interval has passed."""
+        gap = MIN_INTERVAL.get(host, 0.5) - (time.monotonic() - self._last.get(host, 0.0))
+        if gap > 0:
+            time.sleep(gap)
+        self._last[host] = time.monotonic()
+
+
+_throttle = _Throttle()
+
+
+def _retry_after(value: str | None, attempt: int) -> float:
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:  # noqa: S310 - fixed https hosts only
-            body = r.read(MAX_BYTES + 1)
-            return r.status, r.headers.get("Content-Type", ""), body
-    except urllib.error.HTTPError as e:
-        return e.code, "", b""
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return 0, "", b""
+        wait = float(value) if value else 2.0 * 2**attempt
+    except ValueError:
+        wait = 2.0 * 2**attempt
+    return min(max(wait, 1.0), MAX_RETRY_WAIT)
+
+
+def http_get(url: str) -> tuple[int, str, bytes]:
+    """GET with a per-host rate limit and retries on 429/503. Returns (status, type, body);
+    status 0 means a network error."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+    for attempt in range(RETRIES + 1):
+        with _throttle.wait(host):
+            _throttle.pace(host)
+            try:
+                with urllib.request.urlopen(req, timeout=TIMEOUT) as r:  # noqa: S310 - fixed https hosts only
+                    return r.status, r.headers.get("Content-Type", ""), r.read(MAX_BYTES + 1)
+            except urllib.error.HTTPError as e:
+                if e.code not in (429, 503) or attempt == RETRIES:
+                    return e.code, "", b""
+                wait = _retry_after(e.headers.get("Retry-After"), attempt)
+            except (urllib.error.URLError, TimeoutError, OSError):
+                return 0, "", b""
+            # Hold the host lock while backing off, so other workers wait too.
+            time.sleep(wait)
+    return 0, "", b""
 
 
 def clean_domain(value: str | None) -> str | None:
