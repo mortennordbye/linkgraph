@@ -84,3 +84,20 @@ def test_merge_moves_company_note(tmp_path, export_folder):
     saved = json.loads(notes.read_text())
     assert "globex" not in saved["company"]
     assert saved["company"]["acme"]["note"] == "intro via Dag"
+
+
+def test_rejects_foreign_host_header(tmp_path, export_folder):
+    # DNS rebinding: a page on evil.example resolves its name to 127.0.0.1 and calls the API.
+    client, _ = _client(tmp_path, export_folder)
+    assert client.get("/api/data", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/api/data", headers={"Host": "127.0.0.1:8765"}).status_code == 200
+    assert client.get("/api/data", headers={"Host": "localhost:8765"}).status_code == 200
+
+
+def test_put_rejects_non_json_body(tmp_path, export_folder):
+    # A cross-site form can only send text/plain or form bodies without a CORS preflight.
+    client, notes = _client(tmp_path, export_folder)
+    r = client.put("/api/notes/person/ada-l", content='{"status": "Ignore"}',
+                   headers={"Content-Type": "text/plain"})
+    assert r.status_code == 422
+    assert not notes.exists()

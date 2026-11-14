@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import notes as notes_mod
 from . import parser, sources
@@ -49,11 +50,18 @@ class NoteIn(BaseModel):
     label: str | None = None
 
 
+# The API has no login: it trusts that only this machine can reach 127.0.0.1. A Host-header
+# allowlist stops DNS rebinding, where a web page points its own hostname at 127.0.0.1 to read
+# your data from the browser. "testserver" is the Host header FastAPI's TestClient sends.
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+
+
 def create_app(notes_path: Path | None = None, downloads: Path | None = None,
                initial_source: str | None = None) -> FastAPI:
     state = State(notes_path or ROOT / "linkgraph-notes.json",
                   downloads or sources.DEFAULT_DIR)
     app = FastAPI(title="LinkGraph", docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
     @app.middleware("http")
     async def no_cache(request, call_next):
@@ -72,7 +80,7 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
             try:
                 state.load(target)
             except FileNotFoundError as e:
-                raise HTTPException(404, str(e))
+                raise HTTPException(404, str(e)) from e
         return state.dataset
 
     @app.get("/api/sources")
@@ -88,7 +96,7 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
         try:
             ds = state.load(body.path)
         except FileNotFoundError as e:
-            raise HTTPException(404, str(e))
+            raise HTTPException(404, str(e)) from e
         return {"ok": True, "source": ds["source"], "stats": ds["stats"]}
 
     @app.get("/api/data")
@@ -119,7 +127,7 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
             entry = notes_mod.set_entry(state.notes_path, kind, key, body.status, body.note,
                                         body.label)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         return {"kind": kind, "key": key, "entry": entry}
 
     @app.put("/api/aliases/{from_key:path}")
@@ -127,7 +135,7 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
         try:
             aliases = notes_mod.set_alias(state.notes_path, from_key, body.to)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         return {"aliases": aliases}
 
     @app.get("/")
