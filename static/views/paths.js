@@ -1,6 +1,6 @@
 import {
   state, esc, ago, debounce, openCompany, openPerson, effectiveRank, isDM, personStatus, companyStatus,
-  statusBadge, bindStatusCtls, onChange, normQuery, matchWords, TIER_LABELS, warmthHTML,
+  statusBadge, bindStatusCtls, onChange, normQuery, matchWords, TIER_LABELS, warmthHTML, companyLogo,
 } from "../app.js";
 
 const ui = { q: "", showIgnored: false };
@@ -24,7 +24,7 @@ function pathHTML(p) {
     <div class="score" title="rank = seniority + warmth + status">${Math.round(effectiveRank(p))}</div>
     <div class="body">
       <div class="chain">Me → <b><a href="#" class="op" data-id="${esc(p.id)}">${esc(p.name)}</a></b> · ${esc(p.position || "—")} @
-        <a href="#" class="oc" data-key="${esc(p.company_key)}">${esc(p.company_name || "—")}</a> ${statusBadge(st)}</div>
+        <a href="#" class="oc co" data-key="${esc(p.company_key)}">${p.company_key ? companyLogo(p.company_key, p.company_name, 16) : ""}${esc(p.company_name || "—")}</a> ${statusBadge(st)}</div>
       <div class="why">${why(p)} <span class="small muted">warmth</span> ${warmthHTML(p)}</div>
       <div class="status-ctl" data-kind="person" data-key="${esc(p.id)}" data-label="${esc(p.name)}">
         <select class="st"><option value="">— status —</option>${state.statuses.map((s) => `<option ${st === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
@@ -35,7 +35,7 @@ function pathHTML(p) {
 
 function companyBlock(c, people) {
   const st = companyStatus(c.key);
-  return `<div class="group-title">${esc(c.name)} · ${c.count} connection${c.count > 1 ? "s" : ""} ${statusBadge(st)}
+  return `<div class="group-title co">${companyLogo(c.key, c.name, 20)}${esc(c.name)} · ${c.count} connection${c.count > 1 ? "s" : ""} ${statusBadge(st)}
       <a href="#" class="oc small" data-key="${esc(c.key)}" style="text-transform:none;letter-spacing:0">all people →</a></div>
     ${people.map(pathHTML).join("")}`;
 }

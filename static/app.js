@@ -12,6 +12,8 @@ export const state = {
   peopleById: new Map(),
   companiesByKey: new Map(),
   statuses: [],
+  logos: {},      // company key -> local logo URL (only after the user fetched logos)
+  logoInfo: {},   // company key -> {domain, source, status}
   listeners: new Set(),
 };
 
@@ -49,7 +51,27 @@ export function normQuery(s) {
   return (s || "").normalize("NFKC").toLowerCase().replace(/&/g, " and ").replace(/[^\p{L}\p{N}\s]+/gu, " ").replace(/\s+/g, " ").trim();
 }
 
-// Word-prefix match, so "cto" finds "CTO" and "CTO/Founder" but not "Director".
+// ---------- company logos ----------
+// Monogram tiles are the default and need no network. A real logo replaces the tile only when
+// the user has fetched logos; it always loads from this server, never from the internet.
+const SKIP_WORDS = /^(the|as|asa|ab|inc|ltd|llc|gmbh|plc|og|and|of|i)$/i;
+export function initials(name) {
+  const words = (name || "?").replace(/[^\p{L}\p{N}\s]+/gu, " ").split(/\s+/).filter((w) => w && !SKIP_WORDS.test(w));
+  if (!words.length) return "?";
+  return (words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0]).toUpperCase();
+}
+export function monoColor(key) {
+  let h = 0;
+  for (const ch of key || "") h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return `hsl(${h % 360} 48% 40%)`;
+}
+export function companyLogo(key, name, size = 24) {
+  const box = `width:${size}px;height:${size}px`;
+  const url = state.logos[key];
+  if (url) return `<img class="logo" src="${esc(url)}" alt="" style="${box}" loading="lazy">`;
+  return `<span class="mono" aria-hidden="true" style="${box};background:${monoColor(key)};font-size:${Math.round(size * 0.4)}px">${esc(initials(name))}</span>`;
+}
+
 const TITLE_SYNONYMS = [
   ["cto", "chief technology officer", "chief technical officer", "teknisk direktør"],
   ["ceo", "chief executive officer", "daglig leder", "administrerende direktør", "adm dir"],
@@ -135,6 +157,8 @@ async function loadData() {
   state.statuses = d.statuses;
   state.peopleById = new Map(d.people.map((p) => [p.id, p]));
   state.companiesByKey = new Map(d.companies.map((c) => [c.key, c]));
+  state.logos = d.logos || {};
+  state.logoInfo = d.logo_info || {};
   const s = d.stats;
   document.getElementById("stats").textContent =
     `${s.connections} connections · ${s.companies} companies · ${s.decision_makers} decision-makers · ${s.people_with_messages} with messages`;
@@ -202,7 +226,7 @@ export function bindStatusCtls(root) {
 export function personCardHTML(p, { showCompany = false } = {}) {
   const st = personStatus(p.id);
   const company = showCompany && p.company_name
-    ? `<a href="#" class="go-company" data-key="${esc(p.company_key)}">${esc(p.company_name)}</a>` : "";
+    ? `<a href="#" class="go-company co" data-key="${esc(p.company_key)}">${companyLogo(p.company_key, p.company_name, 14)}${esc(p.company_name)}</a>` : "";
   const msgs = p.msg_total
     ? `<a href="#" class="toggle-thread" data-id="${esc(p.id)}">${p.msg_total} message${p.msg_total > 1 ? "s" : ""}</a>` : `<span>no messages</span>`;
   return `<div class="person ${isDM(p) ? "dm" : ""} ${st === "Ignore" ? "ignored" : ""}" data-id="${esc(p.id)}">
@@ -247,7 +271,7 @@ export function openCompany(key) {
   const dms = members.filter(isDM);
   panel().innerHTML = `<div class="panel-head">
       <button class="close" title="Close">✕</button>
-      <h2>${esc(c.name)} ${statusBadge(companyStatus(key))}</h2>
+      <h2 class="co">${companyLogo(key, c.name, 36)}<span>${esc(c.name)}</span> ${statusBadge(companyStatus(key))}</h2>
       <div class="small muted">${c.count} connection${c.count > 1 ? "s" : ""} · ${dms.length} decision-maker${dms.length === 1 ? "" : "s"} · ${c.messages} messages
         ${c.is_employer ? ' · <span class="badge emp">your employer</span>' : ""}
         ${c.variants.length > 1 ? `<br>Also listed as: ${c.variants.map(esc).join(", ")}` : ""}</div>
@@ -256,6 +280,11 @@ export function openCompany(key) {
         <input class="mg" type="text" list="company-names" placeholder="Merge into another company…">
         <button class="mgb">Merge</button>
         ${c.merged_keys.map((k) => `<button class="unmerge small" data-key="${esc(k)}" title="Split this spelling out again">✕ ${esc(k)}</button>`).join("")}
+      </div>
+      <div class="merge-ctl domain-ctl" title="Saving a domain downloads its icon from icons.duckduckgo.com">
+        <input class="dm" type="text" placeholder="Website for the logo, e.g. acme.no" value="${esc(state.notes.domains?.[key] || state.logoInfo[key]?.domain || "")}">
+        <button class="dmb">Set logo</button>
+        <span class="small muted">${esc(logoStatusText(key))}</span>
       </div>
       <datalist id="company-names">${state.data.companies.filter((x) => x.key !== key).map((x) => `<option value="${esc(x.name)}">`).join("")}</datalist>
     </div>
@@ -271,6 +300,19 @@ export function openCompany(key) {
   el.querySelector(".mgb").addEventListener("click", doMerge);
   el.querySelector(".mg").addEventListener("keydown", (e) => { if (e.key === "Enter") doMerge(); });
   el.querySelector(".mg").addEventListener("input", (e) => e.target.setCustomValidity(""));
+  const saveDomain = async () => {
+    const v = el.querySelector(".dm").value.trim();
+    try {
+      const r = await api(`/api/domains/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ domain: v || null }) });
+      state.notes.domains = state.notes.domains || {};
+      if (r.domain) state.notes.domains[key] = r.domain; else delete state.notes.domains[key];
+      if (r.entry) state.logoInfo[key] = { domain: r.entry.domain, source: r.entry.source, status: r.entry.status };
+      if (r.url) state.logos[key] = r.url;
+      emit();
+    } catch (e) { alert(e.message); }
+  };
+  el.querySelector(".dmb").addEventListener("click", saveDomain);
+  el.querySelector(".dm").addEventListener("keydown", (e) => { if (e.key === "Enter") saveDomain(); });
   el.querySelectorAll(".unmerge").forEach((b) => b.addEventListener("click", () => setAlias(b.dataset.key, null).then(() => openCompany(key))));
 }
 
@@ -324,6 +366,44 @@ function route() {
 window.addEventListener("hashchange", route);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
 document.getElementById("source-select").addEventListener("change", (e) => switchSource(e.target.value));
+function logoStatusText(key) {
+  const i = state.logoInfo[key];
+  if (!i) return "";
+  if (i.status === "ok") return `logo via ${i.source === "manual" ? "your domain" : i.source}`;
+  if (i.status === "no_icon") return `no icon found for ${i.domain}`;
+  return "no website found";
+}
+
+// "Fetch logos": the one action that sends anything off this machine, so it always asks first.
+const logoBtn = document.getElementById("logo-btn");
+logoBtn.addEventListener("click", async () => {
+  const haveAll = Object.keys(state.logoInfo).length > 0;
+  const ok = confirm(
+    "Fetch company logos?\n\n" +
+    "LinkGraph sends company names (never people) to data.brreg.no and wikidata.org to find each " +
+    "company's website, and those domains to icons.duckduckgo.com for the icon. Logos are saved in " +
+    "logo-cache/ on this machine, so this runs once.\n\n" +
+    (haveAll ? "Companies done before are skipped, except ones with no logo yet, which are tried again." : ""));
+  if (!ok) return;
+  try {
+    await api("/api/logos/fetch", { method: "POST", body: JSON.stringify({ retry_missing: haveAll }) });
+  } catch (e) { alert(e.message); return; }
+  logoBtn.disabled = true;
+  const poll = async () => {
+    const s = await api("/api/logos/status");
+    logoBtn.textContent = `Logos ${s.done}/${s.total}`;
+    if (s.running) { setTimeout(poll, 800); return; }
+    logoBtn.disabled = false;
+    logoBtn.textContent = "Fetch logos";
+    logoBtn.title = `Last run: ${s.found} logos found for ${s.total} companies`;
+    await loadData();
+    const ctx = panelCtx;
+    route();
+    if (ctx?.type === "company") openCompany(ctx.key); else if (ctx?.type === "person") openPerson(ctx.id);
+  };
+  poll();
+});
+
 document.getElementById("source-other").addEventListener("click", () => {
   const p = prompt("Path to a LinkedIn export folder or .zip file:");
   if (p) switchSource(p.trim());

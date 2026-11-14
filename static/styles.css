@@ -118,6 +118,13 @@ table.grid tbody tr.sel { background: var(--accent-soft); }
 .card h3 { margin: 0 0 4px; font-size: 15px; }
 .card .big { font-size: 22px; font-weight: 700; }
 
+/* Company logos and monograms */
+.co { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.mono, .logo { flex: none; border-radius: 22%; }
+.mono { display: inline-grid; place-items: center; color: #fff; font-weight: 700; letter-spacing: -.02em; line-height: 1; font-style: normal; }
+.logo { object-fit: contain; background: #fff; padding: 2px; border: 1px solid var(--border); }
+.group-title.co { display: flex; gap: 8px; }
+
 /* Badges */
 .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
 .badge.dm { background: color-mix(in srgb, var(--dm) 15%, transparent); color: var(--dm); font-weight: 600; }

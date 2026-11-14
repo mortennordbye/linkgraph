@@ -1,6 +1,7 @@
 # Personal data: never commit
 linkgraph-notes.json
 linkgraph-notes.*.json
+logo-cache/
 *LinkedInDataExport*
 .venv/
 __pycache__/

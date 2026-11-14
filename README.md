@@ -17,7 +17,8 @@ actually talk to. Type a target company or a role and it ranks your best ways in
 
 Everything runs on `127.0.0.1`. The app makes no external requests: the graph library is
 vendored in `static/vendor/`, and a Content-Security-Policy blocks every other origin. Your
-export and your notes never leave the machine.
+export and your notes never leave the machine. The one exception is the opt-in
+[company logos](#company-logos) button, which asks first and sends company names only.
 
 ---
 
@@ -47,6 +48,27 @@ Company names group without case, punctuation, legal suffixes (`AS`, `ASA`, `AB`
 `Ltd`, …) and trailing region words (`Norge`, `Norway`, `Nordics`, …). For names that no rule
 can catch ("Initech is now Globex"), open the company and use **Merge into…**. Merges are saved
 and you can undo them.
+
+### Company logos
+
+Every company gets a monogram tile: its initials on a color that is fixed per company. This
+needs no network and makes long lists easy to scan.
+
+For real logos, press **Fetch logos** in the header. It asks before it sends anything. Then the
+server, not the browser, does this once per company:
+
+| Step | Service | What is sent |
+| ---- | ------- | ------------ |
+| Find the website | [Brønnøysund register](https://data.brreg.no/enhetsregisteret/api/docs/index.html) (Norwegian companies), then [Wikidata](https://www.wikidata.org) | Company name |
+| Get the icon | DuckDuckGo icon service | Company domain |
+
+People are never sent. The register and Wikidata only count a hit whose name matches the company
+exactly, so "Equinor" never picks "Equinor Pensjon". Logos are saved in `logo-cache/` (git
+ignores it) and load from `127.0.0.1`, so the browser still talks to nothing else. Companies
+already done are skipped on the next run.
+
+When no website is found, or the wrong one, type the domain in the company panel and press
+**Set logo**. Some sites have no icon that the service knows; those keep their monogram.
 
 ### Files it reads
 
@@ -102,7 +124,8 @@ linkgraph/
 │   ├── parser.py       # CSV parsing, joins people across files, groups companies
 │   ├── normalize.py    # company keys, profile slugs, seniority tiers
 │   ├── scoring.py      # warmth score and path rank
-│   ├── notes.py        # lead status, notes and merges in linkgraph-notes.json
+│   ├── notes.py        # lead status, notes, merges and logo domains in linkgraph-notes.json
+│   ├── logos.py        # opt-in logo lookup and the local logo cache
 │   └── server.py       # FastAPI app, bound to 127.0.0.1
 ├── static/
 │   ├── app.js          # state, API calls, router, side panel

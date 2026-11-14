@@ -13,9 +13,17 @@ from using that gate, the server checks the `Host` header against an allowlist (
 `localhost`), which blocks DNS rebinding. Write endpoints accept JSON bodies only, so a cross-site
 form cannot change your notes. No CORS headers are sent, so other origins cannot read responses.
 
-**No external requests.** The server makes no outbound calls. The page loads only same-origin
-files: the graph library is vendored in `static/vendor/`, and a Content-Security-Policy blocks
-every other origin. There is no telemetry.
+**No external requests, with one opt-in exception.** The page loads only same-origin files: the
+graph library is vendored in `static/vendor/`, and a Content-Security-Policy blocks every other
+origin. There is no telemetry.
+
+The exception is **Fetch logos**, which runs only after a confirmation dialog, or when you save
+a domain for a company. Then the server sends company names to `data.brreg.no` and
+`www.wikidata.org`, and company domains to `icons.duckduckgo.com`. People are never sent. These
+three hosts are fixed in code, so nothing in an export can point a request at another host or at
+your own network. Responses are size-capped, and only raster images that pass a magic-byte check
+(PNG, ICO, GIF, JPEG, WebP; never SVG) are cached. The cache lives in `logo-cache/` and the page
+loads logos from `127.0.0.1`.
 
 **Data handling.** Zips are read in memory and never extracted. Export content is HTML-escaped
 before it reaches the page. Your lead statuses and notes are stored in `linkgraph-notes.json` in
