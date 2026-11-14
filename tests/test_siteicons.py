@@ -1,4 +1,5 @@
 import socket
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -130,14 +131,14 @@ def test_store_falls_back_to_site_icon(tmp_path):
     store = logos.LogoStore(tmp_path, web, web.site)
     e = store.fetch_one("telenor", "Telenor")
     assert e["status"] == "ok" and e["icon_from"] == "site"
-    assert any("icons.duckduckgo.com" in c for c in web.calls)  # the icon service is asked first
+    assert any(urlsplit(c).hostname == "icons.duckduckgo.com" for c in web.calls)  # asked first
 
 
 def test_icon_service_hit_skips_the_site(tmp_path):
     web = FakeWeb(brreg={"Acme": [{"navn": "ACME AS", "hjemmeside": "acme.no"}]}, icons={"acme.no": PNG})
     store = logos.LogoStore(tmp_path, web, web.site)
     assert store.fetch_one("acme", "Acme")["icon_from"] == "duckduckgo"
-    assert not any(c.startswith("https://acme.no") for c in web.calls)
+    assert not any(urlsplit(c).hostname == "acme.no" for c in web.calls)
 
 
 def test_ipv4_is_tried_first(monkeypatch):
