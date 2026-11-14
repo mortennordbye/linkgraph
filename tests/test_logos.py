@@ -103,6 +103,10 @@ def test_store_fetch_cache_and_misses(tmp_path):
     assert path.read_bytes() == PNG and mime == "image/png"
     assert store.file_for("../index.json") is None
     assert store.file_for("index.json") is None
+    # A well-formed name that the store never wrote is not served, even if the file exists.
+    stray = "0" * 40 + ".png"
+    (tmp_path / stray).write_bytes(PNG)
+    assert store.file_for(stray) is None
     # A new store reads the same cache back.
     assert "acme" in logos.LogoStore(tmp_path, web).urls()
 
