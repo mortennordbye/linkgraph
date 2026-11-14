@@ -61,14 +61,20 @@ server, not the browser, does this once per company:
 | ---- | ------- | ------------ |
 | Find the website | [Brønnøysund register](https://data.brreg.no/enhetsregisteret/api/docs/index.html) (Norwegian companies), then [Wikidata](https://www.wikidata.org) | Company name |
 | Get the icon | DuckDuckGo icon service | Company domain |
+| If it has none | The company's own website (`https` only) | One anonymous request for its icon |
 
 People are never sent. The register and Wikidata only count a hit whose name matches the company
 exactly, so "Equinor" never picks "Equinor Pensjon". Logos are saved in `logo-cache/` (git
 ignores it) and load from `127.0.0.1`, so the browser still talks to nothing else. Companies
 already done are skipped on the next run.
 
+The request to a company's own website is guarded: https on port 443 only, the server resolves
+the host itself and refuses any private, loopback or link-local address, it connects to the exact
+address it checked, and it checks every redirect the same way. So a domain from the register can
+never make LinkGraph call into your own network.
+
 When no website is found, or the wrong one, type the domain in the company panel and press
-**Set logo**. Some sites have no icon that the service knows; those keep their monogram.
+**Set logo**.
 
 ### Files it reads
 
@@ -83,13 +89,44 @@ When no website is found, or the wrong one, type the domain in the company panel
 
 ---
 
+## Get your LinkedIn data
+
+LinkGraph reads the data export that LinkedIn gives every member. You request it once; it takes
+about 10 minutes for the first part.
+
+1. Open [linkedin.com/mypreferences/d/download-my-data](https://www.linkedin.com/mypreferences/d/download-my-data)
+   (or **Me** > **Settings & Privacy** > **Data privacy** > **Get a copy of your data**).
+2. Choose **Want something in particular?** and tick these files:
+
+   | File | What LinkGraph uses it for | Needed? |
+   | ---- | -------------------------- | ------- |
+   | Connections | People, companies, titles, connected date | Yes |
+   | Messages | Message history and warmth | Strongly recommended |
+   | Invitations | Who invited whom, with or without a note | Recommended |
+   | Endorsements, Recommendations | Warmth | Optional |
+   | Profile, Positions | Your name and your past employers | Optional |
+
+   The other choice, **Download larger data archive**, also works. It has all of the above, but
+   LinkedIn needs up to 24 hours to prepare it.
+3. Press **Request archive** and confirm with your password.
+4. LinkedIn emails you when the file is ready, usually after about 10 minutes. Return to the
+   same page and press **Download archive**. The link works for 72 hours.
+5. Leave the file in `~/Downloads`. It is named like `Basic_LinkedInDataExport_11-14-2026.zip`
+   (the full archive starts with `Complete_`). You do not need to unzip it.
+
+Some connections hide their email address from exports, so most email fields are empty. That is
+normal. The export holds data about other people: keep it on your machine, and delete old exports
+when you have a new one.
+
+---
+
 ## Getting Started
 
-You need [uv](https://docs.astral.sh/uv/) (`brew install uv`) and a LinkedIn data export
-(LinkedIn: Settings > Data privacy > Get a copy of your data).
+You need [uv](https://docs.astral.sh/uv/) (`brew install uv`) and your LinkedIn export (see
+[Get your LinkedIn data](#get-your-linkedin-data)).
 
 1. **Clone**: `git clone https://github.com/mortennordbye/linkgraph.git && cd linkgraph`
-2. **Download your export** into `~/Downloads`. A zip (`Basic_LinkedInDataExport_*.zip`,
+2. **Put your export** in `~/Downloads`. A zip (`Basic_LinkedInDataExport_*.zip`,
    `Complete_…zip`) or an unzipped folder both work. Zips are read in memory and never extracted.
 3. **Run**: `./start.sh`
 
@@ -126,6 +163,7 @@ linkgraph/
 │   ├── scoring.py      # warmth score and path rank
 │   ├── notes.py        # lead status, notes, merges and logo domains in linkgraph-notes.json
 │   ├── logos.py        # opt-in logo lookup and the local logo cache
+│   ├── siteicons.py    # SSRF-guarded icon fetch from a company's own website
 │   └── server.py       # FastAPI app, bound to 127.0.0.1
 ├── static/
 │   ├── app.js          # state, API calls, router, side panel
