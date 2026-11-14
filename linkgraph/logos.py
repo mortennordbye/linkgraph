@@ -191,10 +191,16 @@ class LogoStore:
                     for k, v in self.index.items()}
 
     def file_for(self, name: str) -> tuple[Path, str] | None:
+        """Serve only files this store wrote itself: the name must be in the index, and the
+        path is built from the index entry, never from the request."""
         if not self.FILE_RE.match(name):
             return None
-        p = self.dir / name
-        return (p, self.MIME[name.rsplit(".", 1)[1]]) if p.is_file() else None
+        with self._lock:
+            stored = next((v["file"] for v in self.index.values() if v.get("file") == name), None)
+        if stored is None:
+            return None
+        p = self.dir / stored
+        return (p, self.MIME[stored.rsplit(".", 1)[1]]) if p.is_file() else None
 
     # ---- fetching --------------------------------------------------------------
     def fetch_one(self, key: str, name: str, override: str | None = None) -> dict:
