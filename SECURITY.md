@@ -19,9 +19,15 @@ origin. There is no telemetry.
 
 The exception is **Fetch logos**, which runs only after a confirmation dialog, or when you save
 a domain for a company. Then the server sends company names to `data.brreg.no` and
-`www.wikidata.org`, and company domains to `icons.duckduckgo.com`. People are never sent. These
-three hosts are fixed in code, so nothing in an export can point a request at another host or at
-your own network. Responses are size-capped, and only raster images that pass a magic-byte check
+`www.wikidata.org`, and company domains to `icons.duckduckgo.com`. People are never sent. When
+the icon service has no icon, the server asks the company's own website for one.
+
+That last step takes a domain from outside data, so it is guarded against SSRF
+(`linkgraph/siteicons.py`): https on port 443 only, no credentials in URLs, the host must resolve
+to public addresses only (every private, loopback, link-local, CGNAT, reserved and multicast range
+is refused, and so is a mixed answer), the connection goes to the exact IP that passed the check
+(no DNS-rebinding window) while TLS still verifies the hostname, and each of at most three
+redirects is checked the same way. Responses are size-capped, and only raster images that pass a magic-byte check
 (PNG, ICO, GIF, JPEG, WebP; never SVG) are cached. The cache lives in `logo-cache/` and the page
 loads logos from `127.0.0.1`.
 
