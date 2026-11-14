@@ -354,7 +354,7 @@ const views = { companies: renderCompanies, graph: renderGraph, paths: renderPat
 function route() {
   if (!state.data) return;
   const name = (location.hash.replace(/^#\//, "").split("?")[0]) || "companies";
-  const view = views[name] ? name : "companies";
+  const view = Object.hasOwn(views, name) ? name : "companies"; // not inherited keys like "constructor"
   document.querySelectorAll("nav.tabs a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   if (cleanup) { cleanup(); cleanup = null; }
   const root = document.getElementById("view");
