@@ -39,6 +39,16 @@ def _zip_has_marker(p: Path) -> bool:
         return False
 
 
+def confine(path: str, roots: list[Path]) -> str | None:
+    """Resolve a user-supplied path and return it only if it lies inside one of the roots."""
+    real = os.path.realpath(os.path.expanduser(path))
+    for root in roots:
+        base = os.path.realpath(root)
+        if real == base or real.startswith(base.rstrip(os.sep) + os.sep):
+            return real
+    return None
+
+
 def inspect(path: str | Path) -> Candidate | None:
     """Return a Candidate if the path is a usable export. A directory wins over a .zip name."""
     p = Path(path).expanduser()

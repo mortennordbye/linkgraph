@@ -50,7 +50,8 @@ def test_switch_source(tmp_path, export_folder, export_zip):
     client, _ = _client(tmp_path, export_folder)
     r = client.post("/api/source", json={"path": str(export_zip)})
     assert r.status_code == 200 and r.json()["source"]["kind"] == "zip"
-    assert client.post("/api/source", json={"path": str(tmp_path / "nope")}).status_code == 404
+    missing = export_folder.parent / "nope"  # inside the downloads folder, but not there
+    assert client.post("/api/source", json={"path": str(missing)}).status_code == 404
 
 
 def test_static_served(tmp_path, export_folder):
@@ -106,3 +107,11 @@ def test_put_rejects_non_json_body(tmp_path, export_folder):
                    headers={"Content-Type": "text/plain"})
     assert r.status_code == 422
     assert not notes.exists()
+
+
+def test_source_path_must_stay_inside_allowed_roots(tmp_path, export_folder):
+    client, _ = _client(tmp_path, export_folder)
+    assert client.post("/api/source", json={"path": "/etc"}).status_code == 400
+    sneaky = str(export_folder.parent / ".." / ".." / "..")
+    assert client.post("/api/source", json={"path": sneaky}).status_code == 400
+    assert client.post("/api/source", json={"path": str(export_folder)}).status_code == 200

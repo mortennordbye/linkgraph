@@ -104,8 +104,12 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
 
     @app.post("/api/source")
     def set_source(body: SourceIn):
+        # Exports live under your home folder; refuse anything else (e.g. /etc, other users).
+        path = sources.confine(body.path, [Path.home(), state.downloads])
+        if path is None:
+            raise HTTPException(400, "Pick an export inside your home folder.")
         try:
-            ds = state.load(body.path)
+            ds = state.load(path)
         except FileNotFoundError as e:
             raise HTTPException(404, str(e)) from e
         return {"ok": True, "source": ds["source"], "stats": ds["stats"]}
