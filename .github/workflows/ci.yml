@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Lint (ruff)
+        run: uv run ruff check .
+      - name: Test (pytest)
+        run: uv run pytest -q
+      # The suite uses TestClient. This boots the real server the way start.sh does and checks
+      # that the page, the vendored library and the API answer on 127.0.0.1.
+      - name: Smoke-test the server
+        run: |
+          mkdir -p /tmp/dl/LinkedIn_smoke
+          printf 'First Name,Last Name,URL,Email Address,Company,Position,Connected On\nA,B,https://www.linkedin.com/in/ab,,Acme AS,CTO,01 Jan 2024\n' \
+            > /tmp/dl/LinkedIn_smoke/Connections.csv
+          LINKGRAPH_DOWNLOADS=/tmp/dl uv run python -m linkgraph.server --no-browser --port 8765 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8765/api/sources >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:8765/ | grep -q '<title>LinkGraph</title>'
+          curl -sf -o /dev/null http://127.0.0.1:8765/static/vendor/force-graph.min.js
+          curl -sf http://127.0.0.1:8765/api/data | grep -q '"connections":1'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:8765/api/data)" = 400
