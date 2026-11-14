@@ -170,3 +170,38 @@ def test_api_logo_flow(tmp_path, export_folder):
     assert client.put("/api/domains/globex", json={"domain": "localhost"}).status_code == 400
     assert client.put("/api/domains/nope", json={"domain": "acme.no"}).status_code == 404
     assert client.get("/logos/..%2Fnotes.json").status_code == 404
+
+
+def test_http_get_retries_429_then_succeeds(monkeypatch):
+    import io
+    import urllib.error
+
+    answers = [urllib.error.HTTPError("u", 429, "slow down", {"Retry-After": "0"}, io.BytesIO()),
+               "ok"]
+    slept = []
+
+    class Resp:
+        status = 200
+        headers = {"Content-Type": "application/json"}
+
+        def read(self, n):
+            return b"{}"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        assert "github.com/mortennordbye/linkgraph" in req.get_header("User-agent")
+        return Resp()
+
+    monkeypatch.setattr(logos.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(logos.time, "sleep", slept.append)
+    monkeypatch.setitem(logos.MIN_INTERVAL, "www.wikidata.org", 0)
+    assert logos.http_get("https://www.wikidata.org/w/api.php?x=1") == (200, "application/json", b"{}")
+    assert answers == [] and slept and slept[-1] >= 1.0
