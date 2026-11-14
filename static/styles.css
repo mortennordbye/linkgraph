@@ -180,6 +180,10 @@ aside.panel.open { display: flex; }
 .why { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .group-title { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 
+.guide { max-width: 680px; margin: 24px auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 28px; box-shadow: var(--shadow); }
+.guide h1 { margin: 0 0 4px; font-size: 22px; }
+.guide ol { padding-left: 20px; } .guide li { margin: 10px 0; }
+.guide button { margin-right: 8px; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
 .error { padding: 16px; border: 1px solid var(--danger); color: var(--danger); border-radius: var(--radius); background: var(--surface); }
 

@@ -134,9 +134,11 @@ names, job titles, and private message content from a LinkedIn export. The rules
   enforces this; do not loosen it.
 - **The server calls out in one place only: `linkgraph/logos.py`**, and only after the user
   confirms "Fetch logos" or saves a domain. It sends company names and domains, never people, to
-  three hosts fixed in code. Keep it that way: no new hosts, no URLs built from export data, no
-  fetching a company's own website (that would open SSRF into the user's network), and nothing
-  that runs on startup or on page load. Images must pass `sniff_image()`; never accept SVG.
+  three hosts fixed in code, plus the company's own website as a fallback. Every request to a
+  company website must go through `siteicons.safe_get()`, which blocks SSRF into the user's
+  network (https only, public IPs only, IP pinned against DNS rebinding, redirects re-checked).
+  Never call `urllib`/`http.client` on a domain from data any other way, add no new lookup hosts,
+  and run nothing on startup or page load. Images must pass `sniff_image()`; never accept SVG.
 - **Export data is hostile input.** Escape everything with `esc()` before it goes into HTML;
   message content can contain markup. Zips are read in memory and never extracted.
 - **Never commit real data.** Fixtures in `tests/` are synthetic. `.gitignore` blocks
@@ -187,6 +189,7 @@ linkgraph/
 ├── scoring.py     warmth score, base rank
 ├── notes.py       statuses, notes, merge aliases, logo domains (atomic JSON)
 ├── logos.py       opt-in logo lookup (brreg, Wikidata, DuckDuckGo icons) + logo-cache/
+├── siteicons.py   SSRF-guarded fetch of a company's own site icon (the fallback)
 └── server.py      FastAPI app, Host allowlist, static files
 static/
 ├── app.js         state, API, router, shared side panel

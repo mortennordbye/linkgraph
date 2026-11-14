@@ -189,7 +189,35 @@ async function switchSource(path) {
 }
 
 function showError(e) {
-  document.getElementById("view").innerHTML = `<div class="error">${esc(e.message || e)}</div>`;
+  const msg = e.message || String(e);
+  if (/No LinkedIn export found/.test(msg)) { showExportGuide(msg); return; }
+  document.getElementById("view").innerHTML = `<div class="error">${esc(msg)}</div>`;
+}
+
+// First run with no export: explain how to get one instead of showing a bare error.
+function showExportGuide(msg) {
+  const view = document.getElementById("view");
+  view.className = "";
+  view.innerHTML = `<div class="guide">
+    <h1>Get your LinkedIn data</h1>
+    <p class="muted">${esc(msg)}</p>
+    <ol>
+      <li>Open <a href="https://www.linkedin.com/mypreferences/d/download-my-data" target="_blank" rel="noopener noreferrer">LinkedIn's data export page</a>
+        (<b>Me</b> › <b>Settings &amp; Privacy</b> › <b>Data privacy</b> › <b>Get a copy of your data</b>).</li>
+      <li>Choose <b>Want something in particular?</b> and tick <b>Connections</b> (needed), <b>Messages</b> and
+        <b>Invitations</b> (for warmth), and <b>Endorsements</b>, <b>Recommendations</b>, <b>Profile</b> and
+        <b>Positions</b> if you like. The full archive also works, but takes up to 24 hours.</li>
+      <li>Press <b>Request archive</b> and confirm with your password.</li>
+      <li>When LinkedIn emails you (usually about 10 minutes), return to the same page and press
+        <b>Download archive</b>. The link works for 72 hours.</li>
+      <li>Leave the zip in your Downloads folder. No need to unzip it. Then press the button below.</li>
+    </ol>
+    <p><button class="primary" id="guide-retry">Check again</button>
+      <button id="guide-path">Use another folder or zip…</button></p>
+    <p class="small muted">The export stays on this machine. LinkGraph never uploads it.</p>
+  </div>`;
+  view.querySelector("#guide-retry").addEventListener("click", () => location.reload());
+  view.querySelector("#guide-path").addEventListener("click", () => document.getElementById("source-other").click());
 }
 
 // ---------- side panel ----------
@@ -381,7 +409,8 @@ logoBtn.addEventListener("click", async () => {
   const ok = confirm(
     "Fetch company logos?\n\n" +
     "LinkGraph sends company names (never people) to data.brreg.no and wikidata.org to find each " +
-    "company's website, and those domains to icons.duckduckgo.com for the icon. Logos are saved in " +
+    "company's website, and those domains to icons.duckduckgo.com for the icon. If that service has no " +
+    "icon, LinkGraph asks the company's own website (one anonymous request each). Logos are saved in " +
     "logo-cache/ on this machine, so this runs once.\n\n" +
     (haveAll ? "Companies done before are skipped, except ones with no logo yet, which are tried again." : ""));
   if (!ok) return;

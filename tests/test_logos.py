@@ -20,11 +20,19 @@ ICO = b"\x00\x00\x01\x00\x01\x00" + bytes([32, 32]) + b"\x00" * 64
 class FakeWeb:
     """Answers for the three allowed hosts only. Any other host fails the test."""
 
-    def __init__(self, brreg=None, wikidata=None, icons=None):
+    def __init__(self, brreg=None, wikidata=None, icons=None, sites=None):
         self.brreg = brreg or {}        # query -> list of {navn, hjemmeside}
         self.wikidata = wikidata or {}  # query -> list of (qid, label, website)
         self.icons = icons or {}        # domain -> bytes
+        self.sites = sites or {}        # https URL -> (content_type, bytes), the companies' own sites
         self.calls = []
+
+    def site(self, url, limit):
+        self.calls.append(url)
+        if url in self.sites:
+            ctype, body = self.sites[url]
+            return 200, ctype, body[: limit + 1]
+        return 404, "", b""
 
     def __call__(self, url):
         self.calls.append(url)
@@ -94,7 +102,7 @@ def test_wikidata_needs_same_label():
 def test_store_fetch_cache_and_misses(tmp_path):
     web = FakeWeb(brreg={"Acme AS": [{"navn": "Acme AS", "hjemmeside": "www.acme.no"}]},
                   icons={"acme.no": PNG})
-    store = logos.LogoStore(tmp_path, web)
+    store = logos.LogoStore(tmp_path, web, web.site)
     assert store.fetch_one("acme", "Acme AS")["status"] == "ok"
     assert store.fetch_one("nobody", "Nobody")["status"] == "no_domain"
     url = store.urls()["acme"]
@@ -108,7 +116,7 @@ def test_store_fetch_cache_and_misses(tmp_path):
     (tmp_path / stray).write_bytes(PNG)
     assert store.file_for(stray) is None
     # A new store reads the same cache back.
-    assert "acme" in logos.LogoStore(tmp_path, web).urls()
+    assert "acme" in logos.LogoStore(tmp_path, web, web.site).urls()
 
 
 def _wait(store):
@@ -122,7 +130,7 @@ def _wait(store):
 def test_job_skips_cached_and_retries_on_request(tmp_path):
     web = FakeWeb(brreg={"Acme AS": [{"navn": "Acme AS", "hjemmeside": "acme.no"}]},
                   icons={"acme.no": PNG})
-    store = logos.LogoStore(tmp_path, web)
+    store = logos.LogoStore(tmp_path, web, web.site)
     companies = [("acme", "Acme AS"), ("nobody", "Nobody")]
     assert store.start(companies, {})
     assert _wait(store)["found"] == 1
@@ -139,7 +147,7 @@ def test_api_logo_flow(tmp_path, export_folder):
     web = FakeWeb(brreg={"Acme": [{"navn": "ACME AS", "hjemmeside": "www.acme.no"}]},
                   icons={"acme.no": PNG, "globex.example": ICO})
     app = create_app(notes_path=tmp_path / "notes.json", downloads=export_folder.parent,
-                     logo_dir=tmp_path / "logos", logo_http=web)
+                     logo_dir=tmp_path / "logos", logo_http=web, logo_site=web.site)
     client = TestClient(app)
 
     # Loading data never touches the network.
@@ -193,7 +201,7 @@ def test_http_get_retries_429_then_succeeds(monkeypatch):
         def __exit__(self, *a):
             return False
 
-    def fake_urlopen(req, timeout):
+    def fake_urlopen(req, timeout, context=None):
         a = answers.pop(0)
         if isinstance(a, Exception):
             raise a

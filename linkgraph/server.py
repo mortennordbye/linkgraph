@@ -67,10 +67,10 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
 def create_app(notes_path: Path | None = None, downloads: Path | None = None,
                initial_source: str | None = None, logo_dir: Path | None = None,
-               logo_http: HttpGet = http_get) -> FastAPI:
+               logo_http: HttpGet = http_get, logo_site=None) -> FastAPI:
     state = State(notes_path or ROOT / "linkgraph-notes.json",
                   downloads or sources.DEFAULT_DIR)
-    logo_store = LogoStore(logo_dir or ROOT / "logo-cache", logo_http)
+    logo_store = LogoStore(logo_dir or ROOT / "logo-cache", logo_http, logo_site)
     app = FastAPI(title="LinkGraph", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 

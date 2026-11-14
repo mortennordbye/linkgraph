@@ -5,11 +5,13 @@ server, never the browser, does this per company:
 
 1. Find a website domain: a manual override from the notes file, else the Norwegian business
    register (data.brreg.no), else Wikidata. Both are open APIs with no key.
-2. Download the favicon for that domain from DuckDuckGo's icon service.
+2. Download the favicon for that domain from DuckDuckGo's icon service. If it has none, ask the
+   company's own website (siteicons.py, which refuses anything that is not a public https host).
 3. Cache the image in logo-cache/ so the page loads it from 127.0.0.1.
 
-Only company names and domains leave the machine. People never do. The only hosts contacted
-are the three fixed ones below, so no data from the export can steer a request elsewhere.
+Only company names and domains leave the machine. People never do. Lookups go to the three
+fixed hosts below; the only other requests are to the company's own website, through the guard
+in siteicons.py.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import normalize as N
+from . import siteicons
 from .notes import save as save_json
 
 BRREG_URL = "https://data.brreg.no/enhetsregisteret/api/enheter?navn={q}&size=10"
@@ -80,6 +83,7 @@ class _Throttle:
 
 
 _throttle = _Throttle()
+_TLS = siteicons.tls_context()
 
 
 def _retry_after(value: str | None, attempt: int) -> float:
@@ -99,7 +103,7 @@ def http_get(url: str) -> tuple[int, str, bytes]:
         with _throttle.wait(host):
             _throttle.pace(host)
             try:
-                with urllib.request.urlopen(req, timeout=TIMEOUT) as r:  # noqa: S310 - fixed https hosts only
+                with urllib.request.urlopen(req, timeout=TIMEOUT, context=_TLS) as r:  # noqa: S310 - fixed hosts
                     return r.status, r.headers.get("Content-Type", ""), r.read(MAX_BYTES + 1)
             except urllib.error.HTTPError as e:
                 if e.code not in (429, 503) or attempt == RETRIES:
@@ -215,10 +219,12 @@ class LogoStore:
     MIME = {"png": "image/png", "ico": "image/x-icon", "gif": "image/gif", "jpg": "image/jpeg",
             "webp": "image/webp"}
 
-    def __init__(self, cache_dir: Path, get: HttpGet = http_get):
+    def __init__(self, cache_dir: Path, get: HttpGet = http_get,
+                 site_get: siteicons.SiteGet | None = None):
         self.dir = cache_dir
         self.index_path = cache_dir / "index.json"
         self.get = get
+        self.site_get = site_get or (lambda url, limit: siteicons.safe_get(url, limit, USER_AGENT))
         self._lock = threading.Lock()
         self._job_lock = threading.Lock()
         self.job = {"running": False, "done": 0, "total": 0, "found": 0, "started_at": None,
@@ -269,6 +275,11 @@ class LogoStore:
         if domain:
             status, _, body = self.get(ICON_URL.format(domain=domain))
             kind = sniff_image(body) if status == 200 else None
+            entry["icon_from"] = "duckduckgo" if kind else None
+            if not kind:
+                body = siteicons.site_icon(domain, self.site_get, sniff_image) or b""
+                kind = sniff_image(body)
+                entry["icon_from"] = "site" if kind else None
             if kind:
                 fname = hashlib.sha1(key.encode("utf-8")).hexdigest() + "." + kind[0]
                 self.dir.mkdir(parents=True, exist_ok=True)
