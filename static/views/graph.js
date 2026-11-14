@@ -1,4 +1,4 @@
-import { state, esc, debounce, openCompany, openPerson, isDM, TIER_LABELS, personStatus, matchWords } from "../app.js";
+import { state, esc, debounce, openCompany, openPerson, isDM, TIER_LABELS, personStatus, matchWords, initials } from "../app.js";
 
 const ui = { min: 2, kw: "", months: 0, hideEmployer: true, hideGeneric: true, group: "company", labels: true };
 
@@ -39,6 +39,45 @@ export function renderGraph(root) {
   };
   let selected = null;
 
+  // Logo images for company nodes. All URLs point at this server (logo-cache/).
+  const images = new Map();
+  function logoImage(key) {
+    const url = state.logos[key];
+    if (!url) return null;
+    let im = images.get(url);
+    if (!im) {
+      im = new Image();
+      im.onload = () => graph.zoom(graph.zoom()); // repaint once the image is ready
+      im.src = url;
+      images.set(url, im);
+    }
+    return im.complete && im.naturalWidth ? im : null;
+  }
+
+  function drawCompanyBadge(n, ctx, scale) {
+    const r = Math.sqrt(n.val) * 3;
+    const im = logoImage(n.key);
+    if (im && r * scale >= 6) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = "#fff";
+      ctx.fill();
+      ctx.clip();
+      const s = r * 1.25;
+      ctx.drawImage(im, n.x - s / 2, n.y - s / 2, s, s);
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+      ctx.strokeStyle = colors.company; ctx.lineWidth = 2 / scale; ctx.stroke();
+    } else if (r * scale >= 9) {
+      ctx.font = `700 ${r * 0.8}px ui-sans-serif, sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(initials(n.label), n.x, n.y + r * 0.04);
+    }
+  }
+
   const graph = window.ForceGraph()(el)
     .backgroundColor("rgba(0,0,0,0)")
     .nodeId("id")
@@ -56,6 +95,7 @@ export function renderGraph(root) {
     })
     .nodeCanvasObjectMode(() => "after")
     .nodeCanvasObject((n, ctx, scale) => {
+      if (n.kind === "company") drawCompanyBadge(n, ctx, scale);
       if (n.id === selected) {
         ctx.beginPath();
         ctx.arc(n.x, n.y, Math.sqrt(n.val) * 3 + 3, 0, 2 * Math.PI);

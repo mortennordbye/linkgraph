@@ -16,6 +16,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import notes as notes_mod
 from . import parser, sources
+from .logos import HttpGet, LogoStore, clean_domain, http_get
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -40,6 +41,14 @@ class SourceIn(BaseModel):
     path: str
 
 
+class DomainIn(BaseModel):
+    domain: str | None = None
+
+
+class LogoFetchIn(BaseModel):
+    retry_missing: bool = False
+
+
 class AliasIn(BaseModel):
     to: str | None = None
 
@@ -57,9 +66,11 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
 
 def create_app(notes_path: Path | None = None, downloads: Path | None = None,
-               initial_source: str | None = None) -> FastAPI:
+               initial_source: str | None = None, logo_dir: Path | None = None,
+               logo_http: HttpGet = http_get) -> FastAPI:
     state = State(notes_path or ROOT / "linkgraph-notes.json",
                   downloads or sources.DEFAULT_DIR)
+    logo_store = LogoStore(logo_dir or ROOT / "logo-cache", logo_http)
     app = FastAPI(title="LinkGraph", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
@@ -110,7 +121,45 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
             "source": ds["source"], "me": ds["me"], "stats": stats,
             "people": people, "companies": companies,
             "notes": notes, "statuses": notes_mod.STATUSES,
+            "logos": logo_store.urls(), "logo_info": logo_store.info(),
         }
+
+    def _companies() -> list[dict]:
+        ds = _ensure_loaded()
+        aliases = notes_mod.load(state.notes_path)["aliases"]
+        return parser.group_companies(ds["people"], ds["me"]["employer_keys"], aliases)[1]
+
+    # ---- logos: the only code path that calls the internet, and only on request ----
+    @app.post("/api/logos/fetch")
+    def fetch_logos(body: LogoFetchIn):
+        companies = [(c["key"], c["name"]) for c in _companies() if not c["is_generic"]]
+        domains = notes_mod.load(state.notes_path)["domains"]
+        started = logo_store.start(companies, domains, retry_missing=body.retry_missing)
+        return {"started": started, **logo_store.status()}
+
+    @app.get("/api/logos/status")
+    def logos_status():
+        return logo_store.status()
+
+    @app.put("/api/domains/{key:path}")
+    def put_domain(key: str, body: DomainIn):
+        company = next((c for c in _companies() if c["key"] == key), None)
+        if company is None:
+            raise HTTPException(404, "unknown company")
+        domain = clean_domain(body.domain) if body.domain else None
+        if body.domain and not domain:
+            raise HTTPException(400, "not a valid public domain, e.g. acme.no")
+        notes_mod.set_domain(state.notes_path, key, domain)
+        entry = logo_store.fetch_one(key, company["name"], domain) if domain else None
+        return {"key": key, "domain": domain, "entry": entry, "url": logo_store.urls().get(key)}
+
+    @app.get("/logos/{name}")
+    def logo_file(name: str):
+        found = logo_store.file_for(name)
+        if not found:
+            raise HTTPException(404, "no such logo")
+        path, mime = found
+        return FileResponse(path, media_type=mime, headers={"X-Content-Type-Options": "nosniff"})
 
     @app.get("/api/people/{pid}/messages")
     def get_messages(pid: str):

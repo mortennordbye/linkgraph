@@ -5,9 +5,14 @@ from fastapi.testclient import TestClient
 from linkgraph.server import create_app
 
 
+def _no_network(url):
+    raise AssertionError(f"unexpected network call: {url}")
+
+
 def _client(tmp_path, export_folder):
     notes = tmp_path / "linkgraph-notes.json"
-    app = create_app(notes_path=notes, downloads=export_folder.parent)
+    app = create_app(notes_path=notes, downloads=export_folder.parent, logo_dir=tmp_path / "logos",
+                     logo_http=_no_network)
     return TestClient(app), notes
 
 

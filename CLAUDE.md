@@ -129,9 +129,14 @@ names, job titles, and private message content from a LinkedIn export. The rules
   Keep it; it is the only thing between a hostile web page and `/api/data`.
 - **JSON bodies only on writes.** FastAPI rejects non-JSON bodies, so a cross-site form cannot
   change notes. Do not add endpoints that take form or text bodies.
-- **No external requests, at runtime or from the page.** No CDN scripts, fonts, analytics or
-  telemetry. Vendor any new frontend library into `static/vendor/`. The CSP in
-  `static/index.html` enforces this; do not loosen it.
+- **No external requests from the page.** No CDN scripts, fonts, analytics or telemetry.
+  Vendor any new frontend library into `static/vendor/`. The CSP in `static/index.html`
+  enforces this; do not loosen it.
+- **The server calls out in one place only: `linkgraph/logos.py`**, and only after the user
+  confirms "Fetch logos" or saves a domain. It sends company names and domains, never people, to
+  three hosts fixed in code. Keep it that way: no new hosts, no URLs built from export data, no
+  fetching a company's own website (that would open SSRF into the user's network), and nothing
+  that runs on startup or on page load. Images must pass `sniff_image()`; never accept SVG.
 - **Export data is hostile input.** Escape everything with `esc()` before it goes into HTML;
   message content can contain markup. Zips are read in memory and never extracted.
 - **Never commit real data.** Fixtures in `tests/` are synthetic. `.gitignore` blocks
@@ -180,7 +185,8 @@ linkgraph/
 ├── parser.py      CSV parsing, cross-file joins, company grouping
 ├── normalize.py   company keys, slugs, seniority tiers
 ├── scoring.py     warmth score, base rank
-├── notes.py       statuses, notes, merge aliases (atomic JSON)
+├── notes.py       statuses, notes, merge aliases, logo domains (atomic JSON)
+├── logos.py       opt-in logo lookup (brreg, Wikidata, DuckDuckGo icons) + logo-cache/
 └── server.py      FastAPI app, Host allowlist, static files
 static/
 ├── app.js         state, API, router, shared side panel
@@ -195,6 +201,8 @@ tests/             pytest on synthetic fixtures (conftest.py builds a folder and
   of the backend's `base_rank`. Keep ranking logic there, not in the views.
 - **`matchWords()`** does word-prefix title matching with acronym expansion. Use it for every
   title search; plain substring matching finds "cto" in "Director".
+- **`companyLogo()`** in `static/app.js` renders a company's logo or its monogram tile. Use it
+  wherever a company name appears, so logos and colors stay the same everywhere.
 - **Views return a cleanup function** from `render*()`; the router calls it on navigation.
   Unsubscribe listeners and stop the graph there.
 

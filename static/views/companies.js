@@ -1,4 +1,4 @@
-import { state, esc, fmtDate, debounce, openCompany, companyStatus, statusBadge, onChange, normQuery, matchWords } from "../app.js";
+import { state, esc, fmtDate, debounce, openCompany, companyStatus, statusBadge, onChange, normQuery, matchWords, companyLogo } from "../app.js";
 
 const ui = { q: "", sort: "count", dir: -1, mode: "table", status: "", hideGeneric: true, dmOnly: false };
 
@@ -61,7 +61,7 @@ export function renderCompanies(root) {
     if (!rows.length) { list.innerHTML = `<div class="empty">No companies match.</div>`; return; }
     if (ui.mode === "cards") {
       list.innerHTML = `<div class="cards">${rows.map((c) => `<div class="card" data-key="${esc(c.key)}">
-          <h3>${esc(c.name)}</h3>
+          <h3 class="co">${companyLogo(c.key, c.name, 32)}<span>${esc(c.name)}</span></h3>
           <div class="big">${c.count}</div>
           <div class="small muted">${c.decision_makers} decision-maker${c.decision_makers === 1 ? "" : "s"} · warmth ${c.max_warmth}</div>
           <div style="margin-top:6px">${c.is_employer ? '<span class="badge emp">employer</span> ' : ""}${statusBadge(companyStatus(c.key))}</div>
@@ -70,7 +70,7 @@ export function renderCompanies(root) {
       list.innerHTML = `<table class="grid"><thead><tr>${COLS.map((c) =>
         `<th class="${c.num ? "num" : ""}" data-sort="${c.key}">${c.label}${ui.sort === c.key ? (ui.dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead>
         <tbody>${rows.map((c) => `<tr data-key="${esc(c.key)}">
-          <td>${esc(c.name)} ${c.is_employer ? '<span class="badge emp">employer</span>' : ""}${c.variants.length > 1 ? ` <span class="badge" title="${esc(c.variants.join(", "))}">${c.variants.length} spellings</span>` : ""}</td>
+          <td><span class="co">${companyLogo(c.key, c.name, 22)}<span>${esc(c.name)}</span></span> ${c.is_employer ? '<span class="badge emp">employer</span>' : ""}${c.variants.length > 1 ? ` <span class="badge" title="${esc(c.variants.join(", "))}">${c.variants.length} spellings</span>` : ""}</td>
           <td class="num"><div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">${c.count}<div class="bar" style="width:80px"><i style="width:${(100 * c.count) / max}%"></i></div></div></td>
           <td class="num">${c.decision_makers ? `<span class="badge dm">${c.decision_makers}</span>` : "0"}</td>
           <td class="num">${c.max_warmth}</td>

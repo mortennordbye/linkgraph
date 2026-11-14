@@ -15,7 +15,7 @@ _lock = threading.Lock()
 
 
 def empty() -> dict:
-    return {"version": 1, "person": {}, "company": {}, "aliases": {}}
+    return {"version": 1, "person": {}, "company": {}, "aliases": {}, "domains": {}}
 
 
 def load(path: Path) -> dict:
@@ -96,3 +96,15 @@ def set_alias(path: Path, from_key: str, to_key: str | None) -> dict:
                 data["company"][to_key] = moved
         save(path, data)
         return aliases
+
+
+def set_domain(path: Path, key: str, domain: str | None) -> dict:
+    """Manual website domain for a company's logo. None removes the override."""
+    with _lock:
+        data = load(path)
+        if domain:
+            data["domains"][key] = domain
+        else:
+            data["domains"].pop(key, None)
+        save(path, data)
+        return data["domains"]
