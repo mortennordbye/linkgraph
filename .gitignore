@@ -1,0 +1,10 @@
+# Personal data: never commit
+linkgraph-notes.json
+linkgraph-notes.*.json
+*LinkedInDataExport*
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+.playwright-mcp/
