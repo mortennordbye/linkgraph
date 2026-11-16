@@ -1,6 +1,11 @@
-import { state, esc, debounce, openCompany, openPerson, isDM, TIER_LABELS, personStatus, matchWords, initials } from "../app.js";
+import { state, esc, debounce, openCompany, openPerson, isDM, TIER_LABELS, personStatus, matchWords, normQuery, initials } from "../app.js";
 
-const ui = { min: 2, kw: "", months: 0, hideEmployer: true, hideGeneric: true, group: "company", labels: true };
+const ui = { min: 2, by: "role", q: "", months: 0, hideEmployer: true, hideGeneric: true, group: "company", labels: true };
+const SEARCH_BY = {
+  role: ["Role", "CTO, Product, Engineering…"],
+  company: ["Company", "Company name, e.g. Equinor"],
+  person: ["Person", "Person's name"],
+};
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -9,7 +14,9 @@ function cssVar(name) {
 export function renderGraph(root) {
   root.innerHTML = `<div class="toolbar pad">
       <label class="inline">Min connections/company <input type="number" id="gmin" min="1" max="50" value="${ui.min}" style="width:64px"></label>
-      <label class="inline">Title keyword <input type="search" id="gkw" placeholder="CTO, Product, Engineering…" value="${esc(ui.kw)}" style="min-width:200px"></label>
+      <label class="inline">Search <select id="gby" aria-label="Search by">${Object.entries(SEARCH_BY)
+          .map(([v, [l]]) => `<option value="${v}" ${ui.by === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <input type="search" id="gkw" placeholder="${SEARCH_BY[ui.by][1]}" value="${esc(ui.q)}" style="min-width:200px"></label>
       <label class="inline">Connected within
         <select id="gmonths">${[[0, "any time"], [3, "3 months"], [6, "6 months"], [12, "1 year"], [24, "2 years"], [60, "5 years"]]
           .map(([v, l]) => `<option value="${v}" ${ui.months === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -114,10 +121,16 @@ export function renderGraph(root) {
   graph.d3Force("link").distance((l) => (l.source.kind === "me" ? 80 : 24));
 
   function build() {
-    const kw = ui.kw.trim().toLowerCase();
+    const q = normQuery(ui.q);
+    const by = q ? ui.by : null;
+    // A Company or Person search goes straight to the match, so the size and "Hide" filters do not apply.
+    const direct = by === "company" || by === "person";
+    const companyHit = (c) => c.key.includes(q) || normQuery(c.name).includes(q) || c.variants.some((v) => normQuery(v).includes(q));
+    const companyOk = (c) => direct || !(c.count < ui.min || (ui.hideEmployer && c.is_employer) || (ui.hideGeneric && c.is_generic));
     const cutoff = ui.months ? Date.now() - ui.months * 30.44 * 86400000 : 0;
     const personOk = (p) => personStatus(p.id) !== "Ignore" &&
-      (!kw || matchWords(p.position, kw)) &&
+      (by !== "role" || matchWords(p.position, q)) &&
+      (by !== "person" || matchWords(p.name, q)) &&
       (!cutoff || (p.connected_on && new Date(p.connected_on).getTime() >= cutoff));
 
     const nodes = [{ id: "me", kind: "me", label: state.data.me.name, tip: esc(state.data.me.name), val: 18, color: colors.me, fx: 0, fy: 0 }];
@@ -130,9 +143,7 @@ export function renderGraph(root) {
 
     if (ui.group === "company") {
       for (const c of state.data.companies) {
-        if (c.count < ui.min) continue;
-        if (ui.hideEmployer && c.is_employer) continue;
-        if (ui.hideGeneric && c.is_generic) continue;
+        if (!companyOk(c) || (by === "company" && !companyHit(c))) continue;
         const members = c.people.map((id) => state.peopleById.get(id)).filter(personOk);
         if (!members.length) continue;
         const cid = "c:" + c.key;
@@ -141,7 +152,7 @@ export function renderGraph(root) {
         links.push({ source: "me", target: cid });
         for (const p of members) { nodes.push(personNode(p)); links.push({ source: cid, target: "p:" + p.id }); }
       }
-      if (ui.min <= 1) {
+      if (by === "person" || (!direct && ui.min <= 1)) {
         // People with no company link straight to me.
         for (const p of state.data.people) {
           if (!p.company_key && personOk(p)) { nodes.push(personNode(p)); links.push({ source: "me", target: "p:" + p.id }); }
@@ -152,7 +163,8 @@ export function renderGraph(root) {
       for (const p of state.data.people) {
         if (!personOk(p)) continue;
         const c = state.companiesByKey.get(p.company_key);
-        if (c && ((ui.hideEmployer && c.is_employer) || (ui.hideGeneric && c.is_generic) || c.count < ui.min)) continue;
+        if (c && !companyOk(c)) continue;
+        if (by === "company" && !(c && companyHit(c))) continue;
         if (!byTier.has(p.tier)) byTier.set(p.tier, []);
         byTier.get(p.tier).push(p);
       }
@@ -168,6 +180,26 @@ export function renderGraph(root) {
     const nHubs = nodes.length - nPeople - 1;
     root.querySelector("#gcount").textContent = `${nHubs} ${ui.group === "company" ? "companies" : "clusters"} · ${nPeople} people`;
     graph.graphData({ nodes, links });
+    return direct ? nodes.filter((n) => n.kind === (by === "company" ? "company" : "person")) : [];
+  }
+
+  // After a search, zoom to the result. One Company or Person match also opens in the side panel.
+  let focusTimer = 0;
+  let lastFocus = null;
+  function search() {
+    const hits = build();
+    const one = hits.length === 1 ? hits[0] : null;
+    if (one && one.id !== lastFocus) {
+      selected = one.id;
+      if (one.kind === "company") openCompany(one.key); else openPerson(one.pid);
+    }
+    lastFocus = one?.id ?? null;
+    clearTimeout(focusTimer);
+    // Wait for the layout to settle before the camera moves.
+    focusTimer = setTimeout(() => {
+      if (one && one.x != null) { graph.centerAt(one.x, one.y, 600); graph.zoom(4, 600); }
+      else graph.zoomToFit(600, 40);
+    }, 900);
   }
 
   function resize() { graph.width(el.clientWidth).height(el.clientHeight); }
@@ -177,7 +209,13 @@ export function renderGraph(root) {
 
   const rebuild = debounce(build, 200);
   root.querySelector("#gmin").addEventListener("input", (e) => { ui.min = Math.max(1, +e.target.value || 1); rebuild(); });
-  root.querySelector("#gkw").addEventListener("input", (e) => { ui.kw = e.target.value; rebuild(); });
+  const research = debounce(search, 200);
+  root.querySelector("#gkw").addEventListener("input", (e) => { ui.q = e.target.value; research(); });
+  root.querySelector("#gby").addEventListener("change", (e) => {
+    ui.by = e.target.value;
+    root.querySelector("#gkw").placeholder = SEARCH_BY[ui.by][1];
+    search();
+  });
   root.querySelector("#gmonths").addEventListener("change", (e) => { ui.months = +e.target.value; build(); });
   root.querySelector("#ggroup").addEventListener("change", (e) => { ui.group = e.target.value; build(); });
   root.querySelector("#gemp").addEventListener("change", (e) => { ui.hideEmployer = e.target.checked; build(); });
@@ -190,6 +228,7 @@ export function renderGraph(root) {
   setTimeout(() => graph.zoomToFit(600, 40), 1500);
 
   return () => {
+    clearTimeout(focusTimer);
     ro.disconnect();
     document.removeEventListener("lg:selection", onSel);
     graph.pauseAnimation();
