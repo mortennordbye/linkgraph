@@ -15,7 +15,7 @@ A small local web app that reads the data export LinkedIn gives you and turns it
 map: which companies your network covers, who the decision-makers are, and which people you
 actually talk to. Type a target company or a role and it ranks your best ways in.
 
-Everything runs on `127.0.0.1`. The app makes no external requests: the graph library is
+By default everything runs on `127.0.0.1`. The app makes no external requests: the graph library is
 vendored in `static/vendor/`, and a Content-Security-Policy blocks every other origin. Your
 export and your notes never leave the machine. The one exception is the opt-in
 [company logos](#company-logos) button, which asks first and sends company names only.
@@ -114,6 +114,11 @@ about 10 minutes for the first part.
 5. Leave the file in `~/Downloads`. It is named like `Basic_LinkedInDataExport_11-14-2026.zip`
    (the full archive starts with `Complete_`). You do not need to unzip it.
 
+When LinkGraph runs on a server ([Run in Kubernetes](#run-in-kubernetes)), press **Import zip**
+in the header and pick the file instead. You can do all the steps on a phone: open the link in
+the phone's browser, not in the LinkedIn app. On an iPhone the zip goes to **Files** >
+**Downloads**, and **Import zip** opens the same place.
+
 Some connections hide their email address from exports, so most email fields are empty. That is
 normal. The export holds data about other people: keep it on your machine, and delete old exports
 when you have a new one.
@@ -140,6 +145,27 @@ http://127.0.0.1:8765/. Use the **Export** menu in the header to switch between 
 | Other port, no browser | `./start.sh --port 9000 --no-browser` |
 | Search another folder | `LINKGRAPH_DOWNLOADS=/some/other/dir ./start.sh` |
 
+## Run in Kubernetes
+
+The CI publishes an image to `ghcr.io/mortennordbye/linkgraph` on every push to `main` (tags
+`latest`, `sha-<commit>` and `0.0.<run>`). The image holds the code only. Mount a volume at
+`/data`: it holds the imported exports, `linkgraph-notes.json` and `logo-cache/`. The image runs
+as uid 1000, so give the pod `fsGroup: 1000`.
+
+| Variable | Image default | Use |
+| -------- | ------------- | --- |
+| `LINKGRAPH_HOST` | `0.0.0.0` | Bind address (`127.0.0.1` outside the image) |
+| `LINKGRAPH_ALLOWED_HOSTS` | none | The hostname your proxy serves, e.g. `linkgraph.example.lan` |
+| `LINKGRAPH_DATA_DIR` | `/data` | Notes and logo cache |
+| `LINKGRAPH_DOWNLOADS` | `/data/exports` | Where **Import zip** saves exports |
+
+The app has no login. Serve it only on a private network or behind your own auth, never on
+the internet: everyone who can open the page can read your messages. Fetch logos needs egress
+to the internet on port 443.
+
+On a phone, open the page and choose **Share** > **Add to Home Screen** (iOS) or **Install app**
+(Android). It then opens full screen with its own icon.
+
 | Task | Command |
 | ---- | ------- |
 | Run | `make run` |
@@ -164,12 +190,13 @@ linkgraph/
 │   ├── notes.py        # lead status, notes, merges and logo domains in linkgraph-notes.json
 │   ├── logos.py        # opt-in logo lookup and the local logo cache
 │   ├── siteicons.py    # SSRF-guarded icon fetch from a company's own website
-│   └── server.py       # FastAPI app, bound to 127.0.0.1
+│   └── server.py       # FastAPI app, bound to 127.0.0.1 by default
 ├── static/
 │   ├── app.js          # state, API calls, router, side panel
 │   ├── views/          # companies, graph and warm-paths views
 │   └── vendor/         # force-graph, vendored so nothing loads from a CDN
 ├── tests/              # pytest suite on synthetic fixtures
+├── Dockerfile          # the cluster image (code only; data lives on a volume)
 └── .github/
     └── workflows/      # CI and security pipelines
 ```
@@ -180,7 +207,8 @@ linkgraph/
 
 | Workflow | Trigger | Purpose |
 | -------- | ------- | ------- |
-| CI | push, PR | ruff lint and pytest |
+| CI | push, PR | ruff lint and pytest, then build the image (pushed to GHCR from `main` only) |
+| Container Scan | push, weekly | Trivy scan of the image, results under Security |
 | Dependency Review | PR | block known-vulnerable dependency changes |
 | Scorecard | push, weekly | OpenSSF supply-chain grade |
 | Dependabot auto-merge | PR | merge Dependabot updates once the required checks pass |

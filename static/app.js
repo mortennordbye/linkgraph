@@ -179,12 +179,34 @@ async function switchSource(path) {
   document.getElementById("view").innerHTML = `<div class="empty">Parsing ${esc(path)}…</div>`;
   try {
     await api("/api/source", { method: "POST", body: JSON.stringify({ path }) });
-    await loadData();
-    await loadSources();
-    closePanel();
-    route();
+    await showNewSource();
   } catch (e) {
     showError(e);
+  }
+}
+
+async function showNewSource() {
+  await loadData();
+  await loadSources();
+  closePanel();
+  route();
+}
+
+// The zip goes as a raw application/zip body, never a form (see /api/import).
+async function importZip(file) {
+  const btn = document.getElementById("source-import");
+  btn.disabled = true;
+  btn.textContent = "Importing…";
+  document.getElementById("view").innerHTML = `<div class="empty">Importing ${esc(file.name)}…</div>`;
+  try {
+    await api(`/api/import?name=${encodeURIComponent(file.name)}`,
+      { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
+    await showNewSource();
+  } catch (e) {
+    showError(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Import zip";
   }
 }
 
@@ -210,13 +232,16 @@ function showExportGuide(msg) {
       <li>Press <b>Request archive</b> and confirm with your password.</li>
       <li>When LinkedIn emails you (usually about 10 minutes), return to the same page and press
         <b>Download archive</b>. The link works for 72 hours.</li>
-      <li>Leave the zip in your Downloads folder. No need to unzip it. Then press the button below.</li>
+      <li>Leave the zip in your Downloads folder and press <b>Check again</b>, or press <b>Import zip</b>
+        and pick the file. No need to unzip it.</li>
     </ol>
     <p><button class="primary" id="guide-retry">Check again</button>
+      <button id="guide-import">Import zip</button>
       <button id="guide-path">Use another folder or zip…</button></p>
-    <p class="small muted">The export stays on this machine. LinkGraph never uploads it.</p>
+    <p class="small muted">The export stays on the machine that runs LinkGraph. It goes nowhere else.</p>
   </div>`;
   view.querySelector("#guide-retry").addEventListener("click", () => location.reload());
+  view.querySelector("#guide-import").addEventListener("click", () => document.getElementById("import-file").click());
   view.querySelector("#guide-path").addEventListener("click", () => document.getElementById("source-other").click());
 }
 
@@ -392,6 +417,10 @@ function route() {
 }
 
 window.addEventListener("hashchange", route);
+// On a phone the panel covers the view, so a tab tap must close it to show the new view.
+document.querySelector("nav.tabs").addEventListener("click", () => {
+  if (matchMedia("(max-width: 760px)").matches) closePanel();
+});
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
 document.getElementById("source-select").addEventListener("change", (e) => switchSource(e.target.value));
 function logoStatusText(key) {
@@ -431,6 +460,13 @@ logoBtn.addEventListener("click", async () => {
     if (ctx?.type === "company") openCompany(ctx.key); else if (ctx?.type === "person") openPerson(ctx.id);
   };
   poll();
+});
+
+document.getElementById("source-import").addEventListener("click", () => document.getElementById("import-file").click());
+document.getElementById("import-file").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (file) importZip(file);
 });
 
 document.getElementById("source-other").addEventListener("click", () => {

@@ -191,4 +191,26 @@ aside.panel.open { display: flex; }
   aside.panel { position: absolute; inset: 0; width: 100%; }
   input[type=search] { min-width: 0; width: 100%; }
   #view { padding: 12px; }
+
+  /* Phone: a compact header and a tab bar at the bottom, clear of the notch and home bar. */
+  body { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+  header.top {
+    gap: 8px; padding: calc(8px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  }
+  .stats, .privacy, .source label { display: none; }
+  .spacer { display: none; }
+  .brand { flex: 1; }
+  .source { order: 3; flex-basis: 100%; min-width: 0; }
+  .source select { flex: 1; width: 0; max-width: none; }
+  nav.tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; gap: 0;
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+  nav.tabs a { flex: 1; text-align: center; padding: 16px 4px; border-radius: 0; font-size: 13px; }
+  nav.tabs a.active, nav.tabs a.active:hover { background: none; color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
+  table.grid .bar { display: none; }
+  /* Messages and Latest connection: the side panel shows both. */
+  table.grid :is(th, td):is(:nth-child(5), :nth-child(6)) { display: none; }
+  table.grid th, table.grid td { padding: 8px; }
 }
