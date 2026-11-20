@@ -123,12 +123,16 @@ three views, and check the console for errors. The pytest suite never runs the f
 LinkGraph is a single-user tool on `127.0.0.1` with no login. The data it serves is personal:
 names, job titles, and private message content from a LinkedIn export. The rules that apply:
 
-- **Localhost only.** Uvicorn binds `127.0.0.1`. Never change that to `0.0.0.0`; there is no
-  auth to stand in for it.
+- **Localhost only by default.** Uvicorn binds `127.0.0.1`. Only the container image sets
+  `LINKGRAPH_HOST=0.0.0.0`, for a private reverse proxy (the homelab cluster). Never change the
+  default; there is no auth to stand in for it.
 - **Host-header allowlist** (`ALLOWED_HOSTS` in `linkgraph/server.py`) stops DNS rebinding.
-  Keep it; it is the only thing between a hostile web page and `/api/data`.
+  Keep it; it is the only thing between a hostile web page and `/api/data`. Extra hosts come
+  only from `LINKGRAPH_ALLOWED_HOSTS`, never a wildcard.
 - **JSON bodies only on writes.** FastAPI rejects non-JSON bodies, so a cross-site form cannot
-  change notes. Do not add endpoints that take form or text bodies.
+  change notes. Do not add endpoints that take form or text bodies. The one exception,
+  `POST /api/import`, takes a raw `application/zip` body only (it needs a CORS preflight, which
+  the server never answers); keep that content-type check.
 - **No external requests from the page.** No CDN scripts, fonts, analytics or telemetry.
   Vendor any new frontend library into `static/vendor/`. The CSP in `static/index.html`
   enforces this; do not loosen it.
@@ -178,6 +182,9 @@ No `.env` file; there is nothing secret to configure.
 | -------- | ------- | --- |
 | `LINKGRAPH_DOWNLOADS` | `~/Downloads` | Folder to search for exports |
 | `LINKGRAPH_PORT` | `8765` | Port, same as `--port` |
+| `LINKGRAPH_HOST` | `127.0.0.1` | Bind address, same as `--host`. The image sets `0.0.0.0` |
+| `LINKGRAPH_ALLOWED_HOSTS` | none | Extra Host-header names, comma separated |
+| `LINKGRAPH_DATA_DIR` | repo folder | Where `linkgraph-notes.json` and `logo-cache/` live |
 
 ### Directory layout
 
@@ -196,6 +203,7 @@ static/
 ├── views/         companies.js, graph.js, paths.js
 └── vendor/        force-graph (vendored, with its license)
 tests/             pytest on synthetic fixtures (conftest.py builds a folder and a zip)
+Dockerfile         cluster image; deployed by mortennordbye/homelab (k8s/talos/apps/linkgraph)
 ```
 
 ### Key patterns

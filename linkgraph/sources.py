@@ -6,6 +6,7 @@ import os
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 DEFAULT_DIR = Path(os.environ.get("LINKGRAPH_DOWNLOADS", Path.home() / "Downloads"))
 MARKER = "connections.csv"
@@ -31,7 +32,7 @@ def _folder_has_marker(p: Path) -> bool:
         return False
 
 
-def _zip_has_marker(p: Path) -> bool:
+def zip_has_marker(p: Path | IO[bytes]) -> bool:
     try:
         with zipfile.ZipFile(p) as zf:
             return any(Path(n).name.casefold() == MARKER for n in zf.namelist())
@@ -63,7 +64,7 @@ def inspect(path: str | Path) -> Candidate | None:
             if c.is_dir() and _folder_has_marker(c):
                 return Candidate(str(c), "folder", c.name, c.stat().st_mtime, 0)
         return None
-    if p.is_file() and zipfile.is_zipfile(p) and _zip_has_marker(p):
+    if p.is_file() and zipfile.is_zipfile(p) and zip_has_marker(p):
         return Candidate(str(p), "zip", p.name, st.st_mtime, st.st_size)
     return None
 

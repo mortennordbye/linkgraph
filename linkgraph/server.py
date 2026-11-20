@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import io
 import os
+import re
+import tempfile
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -20,6 +24,10 @@ from .logos import HttpGet, LogoStore, clean_domain, http_get
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
+# Notes and the logo cache. The repo folder on a laptop, a volume in a container.
+DATA_DIR = Path(os.environ.get("LINKGRAPH_DATA_DIR", ROOT))
+IMPORT_LIMIT = 200 * 1024 * 1024
+IMPORT_NAME_RE = re.compile(r"^[\w.\- ]+\.zip$")
 
 
 class State:
@@ -62,15 +70,17 @@ class NoteIn(BaseModel):
 # The API has no login: it trusts that only this machine can reach 127.0.0.1. A Host-header
 # allowlist stops DNS rebinding, where a web page points its own hostname at 127.0.0.1 to read
 # your data from the browser. "testserver" is the Host header FastAPI's TestClient sends.
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+# LINKGRAPH_ALLOWED_HOSTS adds the hostname a reverse proxy serves the app on (comma separated).
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"] + [
+    h.strip() for h in os.environ.get("LINKGRAPH_ALLOWED_HOSTS", "").split(",") if h.strip()]
 
 
 def create_app(notes_path: Path | None = None, downloads: Path | None = None,
                initial_source: str | None = None, logo_dir: Path | None = None,
                logo_http: HttpGet = http_get, logo_site=None) -> FastAPI:
-    state = State(notes_path or ROOT / "linkgraph-notes.json",
+    state = State(notes_path or DATA_DIR / "linkgraph-notes.json",
                   downloads or sources.DEFAULT_DIR)
-    logo_store = LogoStore(logo_dir or ROOT / "logo-cache", logo_http, logo_site)
+    logo_store = LogoStore(logo_dir or DATA_DIR / "logo-cache", logo_http, logo_site)
     app = FastAPI(title="LinkGraph", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
@@ -112,6 +122,36 @@ def create_app(notes_path: Path | None = None, downloads: Path | None = None,
             ds = state.load(path)
         except FileNotFoundError as e:
             raise HTTPException(404, str(e)) from e
+        return {"ok": True, "source": ds["source"], "stats": ds["stats"]}
+
+    @app.post("/api/import")
+    async def import_export(request: Request, name: str = ""):
+        # A raw zip body, not a form: a cross-site form cannot send application/zip without a
+        # CORS preflight, and the server answers none, so a hostile page cannot upload.
+        if request.headers.get("content-type") != "application/zip":
+            raise HTTPException(415, "Send the export as application/zip.")
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > IMPORT_LIMIT:
+                raise HTTPException(413, "The zip is larger than 200 MB.")
+        if not sources.zip_has_marker(io.BytesIO(body)):
+            raise HTTPException(400, "This is not a LinkedIn export: no Connections.csv inside.")
+        # discover() lists only names with "linkedin" in them; keep the user's name when it fits.
+        base = Path(name).name
+        if not (IMPORT_NAME_RE.match(base) and "linkedin" in base.casefold()):
+            base = time.strftime("LinkedInDataExport_import-%Y%m%d-%H%M%S.zip")
+        state.downloads.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".import-", suffix=".zip", dir=state.downloads)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(body)
+            target = state.downloads / base
+            os.replace(tmp, target)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        ds = state.load(str(target))
         return {"ok": True, "source": ds["source"], "stats": ds["stats"]}
 
     @app.get("/api/data")
@@ -203,6 +243,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="LinkGraph: local LinkedIn network explorer")
     ap.add_argument("--port", type=int, default=int(os.environ.get("LINKGRAPH_PORT", 8765)))
     ap.add_argument("--source", help="Path to an export folder or zip (default: newest in ~/Downloads)")
+    ap.add_argument("--host", default=os.environ.get("LINKGRAPH_HOST", "127.0.0.1"),
+                    help="Bind address. Keep 127.0.0.1 unless a private proxy is in front.")
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
 
@@ -217,7 +259,7 @@ def main() -> None:
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"LinkGraph: open {url}  (Ctrl+C to stop)")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -18,3 +18,22 @@ Known gaps deliberately left for later. WIP belongs on a branch, not here.
 - **Unblock:** Rank company-key pairs by token overlap, show the top pairs in the Companies
   view, and reuse `PUT /api/aliases/{key}` for the merge.
 - **Where:** `linkgraph/normalize.py`, `static/views/companies.js`.
+
+## No phone lookup screen
+- **What:** A phone screen for small talk at events: one search field, then name, title,
+  company, how you know them and your note, without the desktop views.
+- **Why deferred:** Agreed as the next change after the cluster deploy. This change only made the
+  current views fit a phone (bottom tab bar, compact header).
+- **Unblock:** Mock the screen first, then add it as a fourth view that reuses `matchWords()` and
+  `companyLogo()`.
+- **Where:** `static/app.js` (router, `views`), `static/views/`, `static/styles.css`.
+
+## No offline mode for the installed app
+- **What:** The home-screen app needs the network. A service worker could cache the page and
+  `/api/data` for venues with bad signal.
+- **Why deferred:** A cache puts contacts and private messages on the phone's storage, outside
+  the server. That is a privacy decision, not only a feature.
+- **Unblock:** Decide if that is acceptable; if yes, cache the app shell and the data with a
+  manual "refresh" and a "clear" control.
+- **Where:** `static/index.html` (CSP needs `worker-src 'self'`), new `static/sw.js`.
+

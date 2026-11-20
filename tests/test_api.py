@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -115,3 +116,59 @@ def test_source_path_must_stay_inside_allowed_roots(tmp_path, export_folder):
     sneaky = str(export_folder.parent / ".." / ".." / "..")
     assert client.post("/api/source", json={"path": sneaky}).status_code == 400
     assert client.post("/api/source", json={"path": str(export_folder)}).status_code == 200
+
+
+def _zip_bytes(files):
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, text in files.items():
+            zf.writestr(name, text)
+    return buf.getvalue()
+
+
+def test_import_zip(tmp_path, export_folder):
+    from tests.conftest import FILES
+    client, _ = _client(tmp_path, export_folder)
+    zipped = _zip_bytes(FILES)
+    headers = {"Content-Type": "application/zip"}
+
+    r = client.post("/api/import?name=Basic_LinkedInDataExport_02-02-2026.zip", content=zipped,
+                    headers=headers)
+    assert r.status_code == 200 and r.json()["source"]["kind"] == "zip"
+    saved = export_folder.parent / "Basic_LinkedInDataExport_02-02-2026.zip"
+    assert saved.read_bytes() == zipped
+    assert any(c["path"] == str(saved) for c in client.get("/api/sources").json()["candidates"])
+    assert client.get("/api/data").json()["source"]["path"] == str(saved)
+    assert not list(export_folder.parent.glob(".import-*"))  # no temp files left behind
+
+
+def test_import_names_stay_in_the_folder(tmp_path, export_folder):
+    from tests.conftest import FILES
+    client, _ = _client(tmp_path, export_folder)
+    for name in ("../../evil_LinkedIn.zip", "notes.zip", "x/../LinkedIn.json"):
+        r = client.post(f"/api/import?name={name}", content=_zip_bytes(FILES),
+                        headers={"Content-Type": "application/zip"})
+        assert r.status_code == 200
+        path = r.json()["source"]["path"]
+        assert str(export_folder.parent) == str(Path(path).parent)
+        assert "linkedin" in Path(path).name.casefold() and path.endswith(".zip")
+    assert not (tmp_path / "evil_LinkedIn.zip").exists()
+
+
+def test_import_rejects_bad_bodies(tmp_path, export_folder, monkeypatch):
+    import linkgraph.server as server
+    client, _ = _client(tmp_path, export_folder)
+    zipped = _zip_bytes({"Connections.csv": "First Name\n"})
+    # A form or a JSON body is refused: only a raw zip, which needs a CORS preflight.
+    assert client.post("/api/import", content=zipped,
+                       headers={"Content-Type": "multipart/form-data"}).status_code == 415
+    assert client.post("/api/import", content=zipped,
+                       headers={"Content-Type": "text/plain"}).status_code == 415
+    zip_headers = {"Content-Type": "application/zip"}
+    assert client.post("/api/import", content=b"not a zip", headers=zip_headers).status_code == 400
+    other = _zip_bytes({"Profile.csv": "First Name\n"})
+    assert client.post("/api/import", content=other, headers=zip_headers).status_code == 400
+    monkeypatch.setattr(server, "IMPORT_LIMIT", 10)
+    assert client.post("/api/import", content=zipped, headers=zip_headers).status_code == 413

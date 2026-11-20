@@ -1,0 +1,10 @@
+# Allowlist. The checkout can hold a real LinkedIn export, linkgraph-notes.json and logo-cache/
+# (all gitignored), and the image is public. Only what the image needs may travel.
+*
+
+!pyproject.toml
+!uv.lock
+!linkgraph/
+!static/
+
+**/__pycache__/

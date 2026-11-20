@@ -2,12 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
   <meta name="referrer" content="no-referrer">
   <title>LinkGraph</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#171b21" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="LinkGraph">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -24,6 +31,8 @@
       <label for="source-select">Export</label>
       <select id="source-select"></select>
       <button id="source-other" title="Use another folder or zip path">…</button>
+      <button id="source-import" title="Upload a LinkedIn export zip">Import zip</button>
+      <input type="file" id="import-file" accept=".zip,application/zip" hidden>
     </div>
     <button id="logo-btn" title="Opt-in: look up company logos. Asks before sending anything.">Fetch logos</button>
     <span class="privacy" title="All data stays on this machine. The only exception is the opt-in Fetch logos button.">local only</span>
